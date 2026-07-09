@@ -81,7 +81,7 @@ st.markdown("""
 # ─── DATA ───────────────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    df = pd.read_excel("data.xlsx", header=2)
+    df = pd.read_excel(path, header=2)
 
     # Revenu en M€ (numérique)
     df["Revenu_M"] = pd.to_numeric(df["Revenu attendu"], errors="coerce").fillna(0) / 1_000_000
@@ -131,7 +131,6 @@ with st.sidebar:
     sel_tri = st.multiselect("Tri activités", tri_options, default=tri_options)
 
     st.markdown("---")
-    st.caption("Données : data.xlsx")
 
 # ─── FILTRAGE ───────────────────────────────────────────────────────────────────
 df = df_raw.copy()
