@@ -80,7 +80,7 @@ st.markdown("""
 
 # ─── DATA ───────────────────────────────────────────────────────────────────────
 @st.cache_data
-def load_data():
+def load_data(path):
     df = pd.read_excel(path, header=2)
 
     # Revenu en M€ (numérique)
