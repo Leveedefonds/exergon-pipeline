@@ -139,8 +139,8 @@ def load_file(path: str) -> pd.DataFrame:
             df["Ticket"] = df["Revenu_M"].apply(lambda x: f"{x:.0f} M€")
     elif "Ticket" in df.columns:
         # Conserver la valeur texte telle quelle (ex: "15 M€", "750 K€")
-        df["Ticket_affichage"] = df["Ticket"].astype(str).str.strip()
-        df["Ticket_affichage"] = df["Ticket_affichage"].replace({"nan": "—", "": "—"})
+        df["Ticket"] = df["Ticket"].astype(str).str.strip()
+        df["Ticket"] = df["Ticket"].replace({"nan": "—", "": "—", "None": "—"})
         # Calcul numérique pour les KPIs
         def parse_ticket(val):
             val = str(val).strip().upper()
@@ -151,7 +151,7 @@ def load_file(path: str) -> pd.DataFrame:
             except:
                 return 0.0
         df["Revenu_M"] = df["Ticket"].apply(parse_ticket)
-        df["Ticket"] = df["Ticket_affichage"]
+        
     else:
         df["Revenu_M"] = 0.0
         df["Ticket"] = "—"
