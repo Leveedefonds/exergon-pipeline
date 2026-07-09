@@ -135,26 +135,19 @@ def load_file(path: str) -> pd.DataFrame:
     # ── Revenu : ancien format "Revenu attendu" ou nouveau format "Ticket"
     if "Revenu attendu" in df.columns:
         df["Revenu_M"] = pd.to_numeric(df["Revenu attendu"], errors="coerce").fillna(0) / 1_000_000
+        # Ticket affiché = valeur formatée
         if "Ticket" not in df.columns:
             df["Ticket"] = df["Revenu_M"].apply(lambda x: f"{x:.0f} M€")
     elif "Ticket" in df.columns:
-        # Conserver la valeur texte telle quelle (ex: "15 M€", "750 K€")
-        df["Ticket"] = df["Ticket"].astype(str).str.strip()
-        df["Ticket"] = df["Ticket"].replace({"nan": "—", "": "—", "None": "—"})
-        # Calcul numérique pour les KPIs
-        def parse_ticket(val):
-            val = str(val).strip().upper()
-            val_num = val.replace("M€","").replace("K€","").replace(" ","").strip()
-            try:
-                n = float(val_num)
-                return n / 1000 if "K€" in val else n
-            except:
-                return 0.0
-        df["Revenu_M"] = df["Ticket"].apply(parse_ticket)
-        
+        # Garder le ticket tel quel pour l'affichage
+        df["Ticket"] = df["Ticket"].astype(str).str.strip().replace("nan","0 M€")
+        df["Revenu_M"] = pd.to_numeric(
+            df["Ticket"].str.replace("M€","",regex=False).str.replace(" ","",regex=False).str.strip(),
+            errors="coerce"
+        ).fillna(0)
     else:
         df["Revenu_M"] = 0.0
-        df["Ticket"] = "—"
+        df["Ticket"] = "0 M€"
 
     # ── Maturation : ancien "Matu." ou nouveau "% Maturation"
     matu_col = "Matu." if "Matu." in df.columns else "% Maturation" if "% Maturation" in df.columns else None
@@ -260,6 +253,21 @@ def get_historique_files():
 
 hist_files = get_historique_files()
 
+# Debug temporaire — à supprimer après
+import os as _os
+_hist_dir = "historique"
+_exists = _os.path.exists(_hist_dir)
+_cwd = _os.getcwd()
+_files_in_hist = _os.listdir(_hist_dir) if _exists else []
+_all_files = _os.listdir(".")
+with st.sidebar:
+    with st.expander("🔍 Debug (temporaire)"):
+        st.write(f"CWD: {_cwd}")
+        st.write(f"Dossier historique existe: {_exists}")
+        st.write(f"Fichiers dans historique/: {_files_in_hist}")
+        st.write(f"Fichiers racine: {_all_files}")
+        st.write(f"hist_files trouvés: {[h['name'] for h in hist_files]}")
+
 # Fichier le plus récent = fichier principal
 if uploaded_main:
     tmp_path = "/tmp/data_main.xlsx"
@@ -268,12 +276,12 @@ if uploaded_main:
     df_raw = load_data(tmp_path)
     current_label = "Upload manuel"
     current_date  = pd.Timestamp.now()
-    hist_files_display = hist_files[-4:]
 elif hist_files:
     latest = hist_files[-1]
     df_raw = load_data(latest["path"])
     current_label = latest["label"]
     current_date  = latest["date"]
+    # Fichiers historiques = tous sauf le plus récent, max 4 derniers
     hist_files_display = hist_files[:-1][-4:]
 else:
     st.info("👋 Bienvenue ! Dépose ton fichier Excel dans le dossier **historique/** sur GitHub pour commencer.")
