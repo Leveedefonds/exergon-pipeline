@@ -259,6 +259,26 @@ def get_historique_files():
     return files
 
 hist_files = get_historique_files()
+
+# Fichier le plus récent = fichier principal
+if uploaded_main:
+    tmp_path = "/tmp/data_main.xlsx"
+    with open(tmp_path, "wb") as f:
+        f.write(uploaded_main.getvalue())
+    df_raw = load_data(tmp_path)
+    current_label = "Upload manuel"
+    current_date  = pd.Timestamp.now()
+    hist_files_display = hist_files[-4:]
+elif hist_files:
+    latest = hist_files[-1]
+    df_raw = load_data(latest["path"])
+    current_label = latest["label"]
+    current_date  = latest["date"]
+    hist_files_display = hist_files[:-1][-4:]
+else:
+    st.info("👋 Bienvenue ! Dépose ton fichier Excel dans le dossier **historique/** sur GitHub pour commencer.")
+    st.stop()
+
 if "hist_files_display" not in dir():
     hist_files_display = []
 
