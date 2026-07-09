@@ -135,19 +135,26 @@ def load_file(path: str) -> pd.DataFrame:
     # ── Revenu : ancien format "Revenu attendu" ou nouveau format "Ticket"
     if "Revenu attendu" in df.columns:
         df["Revenu_M"] = pd.to_numeric(df["Revenu attendu"], errors="coerce").fillna(0) / 1_000_000
-        # Ticket affiché = valeur formatée
         if "Ticket" not in df.columns:
             df["Ticket"] = df["Revenu_M"].apply(lambda x: f"{x:.0f} M€")
     elif "Ticket" in df.columns:
-        # Garder le ticket tel quel pour l'affichage
-        df["Ticket"] = df["Ticket"].astype(str).str.strip().replace("nan","0 M€")
-        df["Revenu_M"] = pd.to_numeric(
-            df["Ticket"].str.replace("M€","",regex=False).str.replace(" ","",regex=False).str.strip(),
-            errors="coerce"
-        ).fillna(0)
+        # Conserver la valeur texte telle quelle (ex: "15 M€", "750 K€")
+        df["Ticket_affichage"] = df["Ticket"].astype(str).str.strip()
+        df["Ticket_affichage"] = df["Ticket_affichage"].replace({"nan": "—", "": "—"})
+        # Calcul numérique pour les KPIs
+        def parse_ticket(val):
+            val = str(val).strip().upper()
+            val_num = val.replace("M€","").replace("K€","").replace(" ","").strip()
+            try:
+                n = float(val_num)
+                return n / 1000 if "K€" in val else n
+            except:
+                return 0.0
+        df["Revenu_M"] = df["Ticket"].apply(parse_ticket)
+        df["Ticket"] = df["Ticket_affichage"]
     else:
         df["Revenu_M"] = 0.0
-        df["Ticket"] = "0 M€"
+        df["Ticket"] = "—"
 
     # ── Maturation : ancien "Matu." ou nouveau "% Maturation"
     matu_col = "Matu." if "Matu." in df.columns else "% Maturation" if "% Maturation" in df.columns else None
