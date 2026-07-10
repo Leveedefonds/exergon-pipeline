@@ -167,7 +167,7 @@ def load_file(path: str) -> pd.DataFrame:
     elif "Ticket" in df.columns:
         # Garder le ticket tel quel
         raw_ticket = df["Ticket"].astype(str).str.strip()
-        df["Ticket"] = raw_ticket.apply(lambda x: "—" if x.lower() in ["nan","none",""] else x)
+        df["Ticket"] = raw_ticket.apply(lambda x: "—" if str(x).strip().lower() in ["nan","none",""] else x)
         # Calcul numérique pour les KPIs
         def parse_ticket(val):
             v = str(val).strip().upper()
