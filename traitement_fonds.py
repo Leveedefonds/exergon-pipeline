@@ -136,6 +136,12 @@ def load_data(path):
 def load_file(path: str) -> pd.DataFrame:
     df = pd.read_excel(path, header=2)
 
+    # --- Normalisation du nom de colonne "Étape" (certains fichiers l'exportent
+    # sans accent : "Etape"). On uniformise pour que le reste du code (filtres,
+    # KPIs, graphiques) qui utilise "Étape" fonctionne toujours.
+    if "Étape" not in df.columns and "Etape" in df.columns:
+        df = df.rename(columns={"Etape": "Étape"})
+
     # --- Revenu : ancien format "Revenu attendu" ou nouveau format "Ticket"
     if "Revenu attendu" in df.columns:
         df["Revenu_M"] = pd.to_numeric(df["Revenu attendu"], errors="coerce").fillna(0) / 1_000_000
