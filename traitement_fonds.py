@@ -142,32 +142,34 @@ def load_file(path: str) -> pd.DataFrame:
         if "Ticket" not in df.columns:
             df["Ticket"] = df["Revenu_M"].apply(lambda x: f"{x:.0f} M€")
     elif "Ticket" in df.columns:
-        # Garder le ticket tel quel
-        raw_ticket = df["Ticket"].astype(str).str.strip()
-        df["Ticket"] = raw_ticket.apply(lambda x: "—" if str(x).strip().lower() in ["nan","none",""] else x)
-        # Calcul numérique pour les KPIs
-        def parse_ticket(val):
-            v = str(val).strip().upper()
-            try:
-                n = float(v.replace("M€","").replace("K€","").replace(" ","").replace(",","."))
-                return n / 1000 if "K€" in v else n
-            except:
-                return 0.0
-        df["Revenu_M"] = df["Ticket"].apply(parse_ticket)
-    else:
-        df["Revenu_M"] = 0.0
+        raw_ticket = df["Ticket"]
+        # NB: on utilise pd.isna() plutôt qu'un simple .astype(str) vectorisé,
+        # car avec les dtypes "str" de pandas récents, une valeur NaN convertie
+        # en chaîne ne redevient pas forcément la string "nan" (d'où l'ancien bug).
+        ticket_vide = raw_ticket.apply(
+            lambda x: pd.isna(x) or str(x).strip().lower() in ["nan", "none", "", "—"]
+        )
 
-    df = pd.read_excel(path, header=2)
+        # Colonne cachée sans nom (souvent en toute fin de fichier) qui contient
+        # le vrai montant en euros quand la colonne "Ticket" texte est vide.
+        last_col = df.columns[-1]
+        if ticket_vide.any() and str(last_col).startswith("Unnamed"):
+            montant_cache = pd.to_numeric(df[last_col], errors="coerce").fillna(0)
+        else:
+            montant_cache = pd.Series(0.0, index=df.index)
 
-    # ── Revenu : ancien format "Revenu attendu" ou nouveau format "Ticket"
-    if "Revenu attendu" in df.columns:
-        df["Revenu_M"] = pd.to_numeric(df["Revenu attendu"], errors="coerce").fillna(0) / 1_000_000
-        if "Ticket" not in df.columns:
-            df["Ticket"] = df["Revenu_M"].apply(lambda x: f"{x:.0f} M€")
-    elif "Ticket" in df.columns:
-        # Garder le ticket tel quel
-        raw_ticket = df["Ticket"].astype(str).str.strip()
-        df["Ticket"] = raw_ticket.apply(lambda x: "—" if str(x).strip().lower() in ["nan","none",""] else x)
+        def format_ticket(is_vide, val_texte, montant):
+            if not is_vide:
+                return str(val_texte)
+            if montant:
+                return f"{montant/1_000_000:.0f} M€"
+            return "—"
+
+        df["Ticket"] = [
+            format_ticket(v, t, m)
+            for v, t, m in zip(ticket_vide, raw_ticket, montant_cache)
+        ]
+
         # Calcul numérique pour les KPIs
         def parse_ticket(val):
             v = str(val).strip().upper()
