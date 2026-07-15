@@ -154,14 +154,14 @@ def load_file(path: str) -> pd.DataFrame:
         # le vrai montant en euros quand la colonne "Ticket" texte est vide.
         last_col = df.columns[-1]
         if ticket_vide.any() and str(last_col).startswith("Unnamed"):
-            montant_cache = pd.to_numeric(df[last_col], errors="coerce").fillna(0)
+            montant_cache = pd.to_numeric(df[last_col], errors="coerce")
         else:
-            montant_cache = pd.Series(0.0, index=df.index)
+            montant_cache = pd.Series([None] * len(df), index=df.index)
 
         def format_ticket(is_vide, val_texte, montant):
             if not is_vide:
                 return str(val_texte)
-            if montant:
+            if pd.notna(montant):
                 return f"{montant/1_000_000:.0f} M€"
             return "—"
 
