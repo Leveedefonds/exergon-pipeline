@@ -369,8 +369,9 @@ with tab1:
     en_retard   = df[df["_date_prochaine"].notna() & (df["_date_prochaine"]<pd.Timestamp.now())].shape[0]
     semaine_passee = df["Tri"].isin(["Semaine passée","Semaine passée & à venir"]).sum()
     semaine_venir  = df["Tri"].isin(["À venir","Semaine passée & à venir"]).sum()
-    top_typo = df.groupby("Typologie")["Revenu_M"].sum().idxmax() if total_leads else "—"
-    top_val  = df.groupby("Typologie")["Revenu_M"].sum().max()    if total_leads else 0
+    df_ok_typo = df[df["Intérêt"] == "OK"]
+    top_typo = df_ok_typo.groupby("Typologie")["Revenu_M"].sum().idxmax() if len(df_ok_typo) else "—"
+    top_val  = df_ok_typo.groupby("Typologie")["Revenu_M"].sum().max()    if len(df_ok_typo) else 0
 
     st.markdown('<div class="section-title">Vue d\'ensemble</div>', unsafe_allow_html=True)
     c1,c2,c3,c4,c5,c6 = st.columns(6)
@@ -395,7 +396,7 @@ with tab1:
     with c5:
         st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🔜 Activités à Venir</div>
             <div class="kpi-value">{semaine_venir}</div>
-            <div class="kpi-sub">prochainement planifiées</div></div>""", unsafe_allow_html=True)
+            <div class="kpi-sub">dans les 2 prochaines semaines</div></div>""", unsafe_allow_html=True)
     with c6:
         st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🏆 Top Typologie</div>
             <div class="kpi-value" style="font-size:1.1rem;padding-top:.3rem">{top_typo}</div>
@@ -429,9 +430,16 @@ with tab1:
         snapshots.append({"df": df_raw, "label": current_label, "ts": current_date})
         snapshots.sort(key=lambda x: x["ts"] if pd.notna(x["ts"]) else pd.Timestamp.min)
 
-        PALE_COLORS = px.colors.qualitative.Pastel + px.colors.qualitative.Pastel2
+        # Dégradé harmonieux (jaune vif → orange → brun), généré dynamiquement
+        # avec autant de nuances que nécessaire pour éviter les couleurs répétées.
+        def palette(n):
+            return px.colors.sample_colorscale(
+                [[0.0,"#FFE9A0"],[0.25,"#FFD93D"],[0.55,"#F4A261"],
+                 [0.8,"#E07A5F"],[1.0,"#B5651D"]],
+                [i/max(n-1,1) for i in range(n)]
+            )
 
-        def evolution_stacked_chart(group_col, title, value_col=None, matu_range=None, y_label="Nb Leads"):
+        def evolution_stacked_chart(group_col, title, value_col=None, matu_range=None, y_label="Nb Leads", ok_only=False):
             """Construit un graphique en barres empilées par période (un mois = un fichier
             historique), regroupées par group_col (Étape ou Typologie), avec une courbe
             au sommet retraçant le total de chaque période."""
@@ -440,6 +448,8 @@ with tab1:
                 d = s["df"].copy()
                 if matu_range:
                     d = d[d["Matu_num"].between(matu_range[0], matu_range[1])]
+                if ok_only:
+                    d = d[d["Intérêt"] == "OK"]
                 d[group_col] = d[group_col].fillna("Non renseigné")
                 d.loc[d[group_col].astype(str).str.strip()=="", group_col] = "Non renseigné"
                 if value_col:
@@ -447,6 +457,10 @@ with tab1:
                 else:
                     grp = d.groupby(group_col).size()
                 for cat, val in grp.items():
+                    if val == 0:
+                        # On ignore les catégories à 0 (M€ ou leads) pour éviter
+                        # qu'elles n'apparaissent en légende sans être visibles.
+                        continue
                     rows.append({"Période": s["label"], group_col: cat, "Valeur": val})
                 totals.append({"Période": s["label"], "Total": grp.sum()})
 
@@ -454,8 +468,9 @@ with tab1:
             df_tot  = pd.DataFrame(totals)
             period_order = [s["label"] for s in snapshots]
 
+            n_cat = df_long[group_col].nunique() if len(df_long) else 1
             fig = px.bar(df_long, x="Période", y="Valeur", color=group_col, barmode="stack",
-                         title=title, color_discrete_sequence=PALE_COLORS,
+                         title=title, color_discrete_sequence=palette(n_cat),
                          category_orders={"Période": period_order},
                          labels={"Valeur": y_label, "Période": ""})
             fig.update_traces(marker_line_width=0)
@@ -484,7 +499,7 @@ with tab1:
 
         ev3, ev4 = st.columns(2)
         with ev3:
-            fig = evolution_stacked_chart("Typologie", "Nombre de Leads par Typologie")
+            fig = evolution_stacked_chart("Typologie", "Nombre de Leads OK par Typologie", ok_only=True)
             st.plotly_chart(fig, use_container_width=True)
         with ev4:
             fig = evolution_stacked_chart("Typologie", "Valeur par Typologie (Matu. 30–80%)",
