@@ -455,8 +455,7 @@ with tab1:
             period_order = [s["label"] for s in snapshots]
 
             fig = px.bar(df_long, x="Période", y="Valeur", color=group_col, barmode="stack",
-                         title=title, # Séquence fluide : Jaune vif -> Orange -> Rouge clair -> Rouge foncé
-WARM_COLORS = [
+                         title=title, WARM_COLORS = [
     "#FFE600",  # 1. Jaune vif
     "#FFC107",  # 2. Jaune ambré
     "#FF9800",  # 3. Orange clair
