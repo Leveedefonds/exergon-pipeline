@@ -84,10 +84,10 @@ st.markdown("""
         padding: 0.15rem 0.6rem; border-radius: 20px; margin-top: 0.45rem;
         font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px;
     }
-    .badge-green  { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
-    .badge-orange { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
-    .badge-red    { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
-    .badge-blue   { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+    .badge-green  { background: #FFE600; color: #065f46; border: 1px solid #a7f3d0; }
+    .badge-orange { background: #FFC107; color: #92400e; border: 1px solid #fcd34d; }
+    .badge-red    { background: #FF9800; color: #991b1b; border: 1px solid #fca5a5; }
+    .badge-blue   { background: #F57C00; color: #1e40af; border: 1px solid #bfdbfe; }
 
     .section-title {
         font-size: 0.72rem; font-weight: 600; color: #1a5c1a;
