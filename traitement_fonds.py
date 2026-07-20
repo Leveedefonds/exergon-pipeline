@@ -362,108 +362,48 @@ tab1, tab2 = st.tabs(["📈  KPIs & Analyse", "📋  Pipeline Détaillé"])
 # TAB 1 — KPIs
 # ════════════════════════════════════════════════════════════════════════════════
 with tab1:
-    total_rev   = df["Revenu_M"].sum()
     total_leads = len(df)
-    avg_ticket  = df[df["Revenu_M"]>0]["Revenu_M"].mean() if (df["Revenu_M"]>0).any() else 0
-    pondere     = df["Pipeline_pondere"].sum()
-    matu_moy    = df["Matu_num"].mean()
-    ko_count    = (df["Intérêt"]=="KO").sum()
     ok_count    = (df["Intérêt"]=="OK").sum()
+    ko_count    = (df["Intérêt"]=="KO").sum()
     conv_rate   = ok_count/total_leads*100 if total_leads else 0
-    mort_count  = df["Étape"].isin(["Mort / Plus rien à faire","Probablement mort"]).sum()
-    actif_count = total_leads - mort_count
     en_retard   = df[df["_date_prochaine"].notna() & (df["_date_prochaine"]<pd.Timestamp.now())].shape[0]
-    semaine     = df["Tri"].isin(["Semaine passée","Semaine passée & à venir"]).sum()
+    semaine_passee = df["Tri"].isin(["Semaine passée","Semaine passée & à venir"]).sum()
+    semaine_venir  = df["Tri"].isin(["À venir","Semaine passée & à venir"]).sum()
+    top_typo = df.groupby("Typologie")["Revenu_M"].sum().idxmax() if total_leads else "—"
+    top_val  = df.groupby("Typologie")["Revenu_M"].sum().max()    if total_leads else 0
 
     st.markdown('<div class="section-title">Vue d\'ensemble</div>', unsafe_allow_html=True)
-    c1,c2,c3,c4 = st.columns(4)
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
     with c1:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">💰 Pipeline Brut</div>
-            <div class="kpi-value">{total_rev:.1f} M€</div>
-            <div class="kpi-sub">{total_leads} leads au total</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">👥 Nombre de Leads</div>
+            <div class="kpi-value">{total_leads}</div>
+            <div class="kpi-sub">au {current_label}</div></div>""", unsafe_allow_html=True)
     with c2:
-        b="badge-green" if pondere>=5 else "badge-orange" if pondere>=1 else "badge-red"
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🎯 Pipeline Pondéré</div>
-            <div class="kpi-value">{pondere:.2f} M€</div>
-            <span class="kpi-badge {b}">Matu. moy. {matu_moy:.0f}%</span></div>""", unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🎟️ Ticket Moyen</div>
-            <div class="kpi-value">{avg_ticket:.2f} M€</div>
-            <div class="kpi-sub">leads avec revenu &gt; 0</div></div>""", unsafe_allow_html=True)
-    with c4:
-        bc="badge-green" if conv_rate>=30 else "badge-orange" if conv_rate>=10 else "badge-red"
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">✅ Taux de Conversion</div>
-            <div class="kpi-value">{conv_rate:.1f}%</div>
-            <span class="kpi-badge {bc}">{ok_count} OK · {ko_count} KO</span></div>""", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    c5,c6,c7,c8 = st.columns(4)
-    with c5:
-        ba="badge-green" if (actif_count/total_leads>0.7 if total_leads else False) else "badge-orange"
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🟢 Leads Actifs</div>
-            <div class="kpi-value">{actif_count}</div>
-            <span class="kpi-badge {ba}">{mort_count} morts/perdus</span></div>""", unsafe_allow_html=True)
-    with c6:
         br="badge-red" if en_retard>10 else "badge-orange" if en_retard>5 else "badge-green"
         st.markdown(f"""<div class="kpi-card"><div class="kpi-label">⏰ Activités en Retard</div>
             <div class="kpi-value">{en_retard}</div>
             <span class="kpi-badge {br}">relances à planifier</span></div>""", unsafe_allow_html=True)
-    with c7:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">📅 Actifs cette Semaine</div>
-            <div class="kpi-value">{semaine}</div>
-            <div class="kpi-sub">activité semaine passée</div></div>""", unsafe_allow_html=True)
-    with c8:
-        top_typo = df.groupby("Typologie")["Revenu_M"].sum().idxmax() if total_leads else "—"
-        top_val  = df.groupby("Typologie")["Revenu_M"].sum().max()    if total_leads else 0
+    with c3:
+        bc="badge-green" if conv_rate>=30 else "badge-orange" if conv_rate>=10 else "badge-red"
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">✅ Taux de Conversion</div>
+            <div class="kpi-value">{conv_rate:.1f}%</div>
+            <span class="kpi-badge {bc}">{ok_count} OK · {ko_count} KO</span></div>""", unsafe_allow_html=True)
+    with c4:
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">📅 Activités Semaine Passée</div>
+            <div class="kpi-value">{semaine_passee}</div>
+            <div class="kpi-sub">activités réalisées</div></div>""", unsafe_allow_html=True)
+    with c5:
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🔜 Activités à Venir</div>
+            <div class="kpi-value">{semaine_venir}</div>
+            <div class="kpi-sub">prochainement planifiées</div></div>""", unsafe_allow_html=True)
+    with c6:
         st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🏆 Top Typologie</div>
             <div class="kpi-value" style="font-size:1.1rem;padding-top:.3rem">{top_typo}</div>
             <span class="kpi-badge badge-blue">{top_val:.1f} M€</span></div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Graphiques statiques ────────────────────────────────────────────────────
-    st.markdown('<div class="section-title">Analyse Graphique</div>', unsafe_allow_html=True)
-    cl, cr = st.columns(2)
-    with cl:
-        ed = df.groupby("Étape")["Revenu_M"].sum().reset_index().sort_values("Revenu_M")
-        fig = px.bar(ed, x="Revenu_M", y="Étape", orientation="h",
-                     title="Pipeline par Étape (M€)", color="Revenu_M",
-                     color_continuous_scale=["#d1fae5","#2d8a2d","#0a3d0a"],
-                     labels={"Revenu_M":"M€","Étape":""})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          coloraxis_showscale=False,margin=dict(l=10,r=10,t=40,b=10),font_family="Space Grotesk",font_color="#1a2e1a")
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
-    with cr:
-        td = df.groupby("Intérêt").size().reset_index(name="Nb")
-        fig = px.pie(td, names="Intérêt", values="Nb", title="Répartition par Intérêt", hole=0.5,
-                     color_discrete_map={"OK":"#059669","KO":"#dc2626","nan":"#8b93a7"})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          margin=dict(l=10,r=10,t=40,b=10),font_family="Space Grotesk",font_color="#1a2e1a")
-        st.plotly_chart(fig, use_container_width=True)
-
-    cl2, cr2 = st.columns(2)
-    with cl2:
-        fig = px.histogram(df[df["Matu_num"]>0], x="Matu_num", nbins=10,
-                           title="Distribution Taux de Maturation (%)",
-                           color_discrete_sequence=["#2d8a2d"],
-                           labels={"Matu_num":"Maturation (%)","count":"Nb leads"})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          margin=dict(l=10,r=10,t=40,b=10),font_family="Space Grotesk",font_color="#1a2e1a",bargap=0.1)
-        st.plotly_chart(fig, use_container_width=True)
-    with cr2:
-        pt = df.groupby("Typologie")["Pipeline_pondere"].sum().reset_index().sort_values("Pipeline_pondere",ascending=False).head(8)
-        fig = px.bar(pt, x="Typologie", y="Pipeline_pondere",
-                     title="Pipeline Pondéré par Typologie (M€)", color="Pipeline_pondere",
-                     color_continuous_scale=["#d1fae5","#2d8a2d","#0a3d0a"],
-                     labels={"Pipeline_pondere":"M€","Typologie":""})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          coloraxis_showscale=False,margin=dict(l=10,r=10,t=40,b=10),
-                          font_family="Space Grotesk",font_color="#1a2e1a",xaxis_tickangle=-30)
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── Évolution historique ────────────────────────────────────────────────────
+    # ── Graphiques évolutifs (empilés par période + courbe de total) ────────────
     all_snapshots_available = hist_files_display or uploaded_history
     if all_snapshots_available:
         st.markdown('<div class="section-title">📅 Évolution dans le Temps</div>', unsafe_allow_html=True)
@@ -489,73 +429,67 @@ with tab1:
         snapshots.append({"df": df_raw, "label": current_label, "ts": current_date})
         snapshots.sort(key=lambda x: x["ts"] if pd.notna(x["ts"]) else pd.Timestamp.min)
 
-        # ── KPIs évolution (pipeline & leads)
-        evo_rows = []
-        for s in snapshots:
-            d = s["df"]
-            evo_rows.append({
-                "Période": s["label"],
-                "Pipeline Brut (M€)": d["Revenu_M"].sum(),
-                "Pipeline Pondéré (M€)": d["Pipeline_pondere"].sum(),
-                "Nb Leads": len(d),
-                "Nb Activités": d["_date_derniere"].notna().sum(),
-            })
-        df_evo = pd.DataFrame(evo_rows)
+        PALE_COLORS = px.colors.qualitative.Pastel + px.colors.qualitative.Pastel2
 
-        e1, e2 = st.columns(2)
-        with e1:
-            fig = px.line(df_evo, x="Période", y="Pipeline Brut (M€)", markers=True,
-                          title="Évolution Pipeline Brut (M€)",
-                          color_discrete_sequence=["#2d8a2d"])
-            fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                              font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=40,b=10))
+        def evolution_stacked_chart(group_col, title, value_col=None, matu_range=None, y_label="Nb Leads"):
+            """Construit un graphique en barres empilées par période (un mois = un fichier
+            historique), regroupées par group_col (Étape ou Typologie), avec une courbe
+            au sommet retraçant le total de chaque période."""
+            rows, totals = [], []
+            for s in snapshots:
+                d = s["df"].copy()
+                if matu_range:
+                    d = d[d["Matu_num"].between(matu_range[0], matu_range[1])]
+                d[group_col] = d[group_col].fillna("Non renseigné")
+                d.loc[d[group_col].astype(str).str.strip()=="", group_col] = "Non renseigné"
+                if value_col:
+                    grp = d.groupby(group_col)[value_col].sum()
+                else:
+                    grp = d.groupby(group_col).size()
+                for cat, val in grp.items():
+                    rows.append({"Période": s["label"], group_col: cat, "Valeur": val})
+                totals.append({"Période": s["label"], "Total": grp.sum()})
+
+            df_long = pd.DataFrame(rows)
+            df_tot  = pd.DataFrame(totals)
+            period_order = [s["label"] for s in snapshots]
+
+            fig = px.bar(df_long, x="Période", y="Valeur", color=group_col, barmode="stack",
+                         title=title, color_discrete_sequence=PALE_COLORS,
+                         category_orders={"Période": period_order},
+                         labels={"Valeur": y_label, "Période": ""})
+            fig.update_traces(marker_line_width=0)
+            fig.add_trace(go.Scatter(
+                x=df_tot["Période"], y=df_tot["Total"],
+                mode="lines+markers", name="Total",
+                line=dict(color="#0a3d0a", width=2.5),
+                marker=dict(size=8, color="#0a3d0a"),
+                showlegend=False
+            ))
+            fig.update_layout(plot_bgcolor="#f4f9f4", paper_bgcolor="#ffffff",
+                              font_family="Space Grotesk", font_color="#1a2e1a",
+                              margin=dict(l=10,r=10,t=50,b=60),
+                              legend=dict(orientation="h", y=-0.25, font_size=10),
+                              xaxis=dict(categoryorder="array", categoryarray=period_order))
+            return fig
+
+        ev1, ev2 = st.columns(2)
+        with ev1:
+            fig = evolution_stacked_chart("Étape", "La Dynamique — Nombre de Leads par Étape")
             st.plotly_chart(fig, use_container_width=True)
-        with e2:
-            fig = px.line(df_evo, x="Période", y="Nb Leads", markers=True,
-                          title="Évolution Nombre de Leads",
-                          color_discrete_sequence=["#1a6e3c"])
-            fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                              font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=40,b=10))
+        with ev2:
+            fig = evolution_stacked_chart("Étape", "Le Résultat — Valeur par Étape (Matu. 30–80%)",
+                                          value_col="Revenu_M", matu_range=(30,80), y_label="M€")
             st.plotly_chart(fig, use_container_width=True)
 
-        # ── Évolution des intérêts (OK/KO/vide) par période — STACKED BAR
-        interet_rows = []
-        for s in snapshots:
-            d = s["df"]
-            counts = d["Intérêt"].fillna("Non renseigné").value_counts()
-            for interet, cnt in counts.items():
-                interet_rows.append({"Période": s["label"], "Intérêt": interet, "Nb": cnt})
-        df_int = pd.DataFrame(interet_rows)
-
-        fig = px.bar(df_int, x="Période", y="Nb", color="Intérêt", barmode="stack",
-                     title="Évolution des Leads par Intérêt (OK / KO / Non renseigné)",
-                     color_discrete_map={"OK":"#059669","KO":"#dc2626","Non renseigné":"#94a3b8"},
-                     labels={"Nb":"Nb Leads","Période":""},
-                     text_auto=True)
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=50,b=10),
-                          legend=dict(orientation="h",y=1.12))
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
-
-        # ── Évolution des étapes par période
-        etape_rows = []
-        for s in snapshots:
-            d = s["df"]
-            counts = d["Étape"].fillna("Non renseigné").value_counts()
-            for etape, cnt in counts.items():
-                etape_rows.append({"Période": s["label"], "Étape": etape, "Nb": cnt})
-        df_et = pd.DataFrame(etape_rows)
-
-        fig = px.bar(df_et, x="Période", y="Nb", color="Étape", barmode="stack",
-                     title="Évolution des Leads par Étape",
-                     labels={"Nb":"Nb Leads","Période":""},
-                     text_auto=True)
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=50,b=60),
-                          legend=dict(orientation="h",y=-0.25,font_size=10))
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
+        ev3, ev4 = st.columns(2)
+        with ev3:
+            fig = evolution_stacked_chart("Typologie", "Nombre de Leads par Typologie")
+            st.plotly_chart(fig, use_container_width=True)
+        with ev4:
+            fig = evolution_stacked_chart("Typologie", "Valeur par Typologie (Matu. 30–80%)",
+                                          value_col="Revenu_M", matu_range=(30,80), y_label="M€")
+            st.plotly_chart(fig, use_container_width=True)
 
         # ── Tableau comparatif des activités
         st.markdown('<div class="section-title">📊 Comparatif Activités d\'une Période à l\'Autre</div>', unsafe_allow_html=True)
