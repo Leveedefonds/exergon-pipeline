@@ -494,22 +494,32 @@ with tab1:
             df_long = pd.DataFrame(rows)
             df_tot  = pd.DataFrame(totals)
 
-            # Limiter aux N catégories les plus importantes (en nombre cumulé) si demandé
+            # Limiter aux N catégories les plus importantes (en nombre cumulé) ; le
+            # reste est regroupé dans "Autre" pour que le total des barres corresponde
+            # bien à la courbe (sinon la courbe dépasse visuellement les barres).
             if top_n and len(df_long):
                 top_cats = df_long.groupby(group_col)["Valeur"].sum().nlargest(top_n).index
-                df_long = df_long[df_long[group_col].isin(top_cats)]
+                df_long[group_col] = df_long[group_col].where(df_long[group_col].isin(top_cats), "Autre")
+                df_long = df_long.groupby(["Période", group_col], as_index=False)["Valeur"].sum()
 
             # Couleurs : soit une correspondance fixe (Étape), soit un dégradé dynamique
             # du plus foncé (catégorie la plus importante) au plus clair (Typologie)
             if color_map is not None:
                 cats_present = df_long[group_col].unique().tolist() if len(df_long) else []
                 cmap = {c: color_map.get(c, GREY_FALLBACK) for c in cats_present}
+                order = [c for c in color_map.keys() if c in cats_present] + \
+                        [c for c in cats_present if c not in color_map]
             elif dynamic_palette is not None and len(df_long):
-                order = df_long.groupby(group_col)["Valeur"].sum().sort_values(ascending=False).index.tolist()
+                order = [c for c in df_long.groupby(group_col)["Valeur"].sum()
+                         .sort_values(ascending=False).index.tolist() if c != "Autre"]
                 colors = dynamic_palette(len(order))
                 cmap = dict(zip(order, colors))
+                if "Autre" in df_long[group_col].values:
+                    cmap["Autre"] = "#B0B0B0"
+                    order = order + ["Autre"]
             else:
                 cmap = None
+                order = None
 
             df_long["Texte"] = df_long["Valeur"].apply(
                 lambda v: f"{v:.1f}" if value_col else f"{int(v)}"
@@ -517,7 +527,7 @@ with tab1:
 
             fig = px.bar(df_long, x="Période", y="Valeur", color=group_col, barmode="stack",
                          title=title, color_discrete_map=cmap,
-                         category_orders={"Période": MONTHS_FR},
+                         category_orders={"Période": MONTHS_FR, **({group_col: order} if order else {})},
                          text="Texte",
                          labels={"Valeur": y_label, "Période": ""})
             fig.update_traces(marker_line_width=0, textposition="inside",
