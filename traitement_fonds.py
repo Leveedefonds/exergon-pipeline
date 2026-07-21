@@ -687,6 +687,12 @@ with tab2:
     rows_html = "\n".join(rows_parts)
 
     table = (
+        '<div style="display:flex;justify-content:flex-end;margin-bottom:6px;">'
+        '<button onclick="document.getElementById(\'twrap\').requestFullscreen()" '
+        'style="background:#0a3d0a;color:#fff;border:none;border-radius:8px;'
+        'padding:6px 14px;font-family:Space Grotesk,sans-serif;font-size:0.75rem;'
+        'cursor:pointer;display:flex;align-items:center;gap:6px;">'
+        '⛶ Plein écran</button></div>'
         '<div id="twrap" style="overflow:auto;max-height:650px;border-radius:12px;'
         'border:1px solid #c8e6c8;font-family:Space Grotesk,sans-serif;">'
         '<table id="pt" style="border-collapse:collapse;width:100%;min-width:1400px;">'
@@ -696,7 +702,11 @@ with tab2:
         '</tr></thead>'
         '<tbody id="ptb">' + rows_html + '</tbody>'
         '</table></div>'
-        '<style>#pt tr:hover td{filter:brightness(.94);}</style>'
+        '<style>'
+        '#pt tr:hover td{filter:brightness(.94);}'
+        '#twrap:fullscreen{max-height:100vh;background:#fff;padding:14px;}'
+        '#twrap:-webkit-full-screen{max-height:100vh;background:#fff;padding:14px;}'
+        '</style>'
         '<script>'
         'var _sd={};'
         'function srt(c){'
@@ -736,7 +746,7 @@ with tab2:
 body { font-family: 'Space Grotesk', sans-serif; font-size: 0.79rem; background: white; }
 </style>
 </head><body>""" + table + "</body></html>"
-    components.html(full_html, height=700, scrolling=True)
+    components.html(full_html, height=734, scrolling=True)
     # ── Export XLSX propre
     output = io.BytesIO()
     try:
