@@ -608,7 +608,7 @@ with tab2:
 
     fc1, fc2, fc3 = st.columns([2,2,3])
     with fc1: search   = st.text_input("🔍 Rechercher", "")
-    with fc2: sort_col = st.selectbox("Trier par", ["Entité","Revenu_M","Matu_num","Étape","Typologie"])
+    with fc2: sort_col = st.selectbox("Trier par", ["Entité","Revenu_M","Matu_num","Étape","Typologie"], index=2)
     with fc3: sort_dir = st.radio("Ordre", ["Décroissant","Croissant"], horizontal=True)
 
     df_disp = df.copy()
