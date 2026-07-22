@@ -464,12 +464,14 @@ with tab1:
         def evolution_stacked_chart(group_col, title, value_col=None, matu_range=None,
                                      y_label="Nb Leads", ok_only=False,
                                      color_map=None, dynamic_palette=None,
-                                     top_n=None):
+                                     top_n=None, show_line=False):
             """Construit un graphique en barres empilées par mois (un fichier historique =
-            un mois), regroupées par group_col (Étape ou Typologie), avec une courbe fine
-            au sommet retraçant le total de chaque mois. L'axe des mois couvre toute
-            l'année pour garder une taille cohérente au fil des ajouts de fichiers."""
-            rows, totals = [], []
+            un mois), regroupées par group_col (Étape ou Typologie). Si show_line=True,
+            une courbe fine est ajoutée sur un axe secondaire à droite, indiquant le
+            nombre de leads (indépendant de l'axe principal en valeur/M€). L'axe des
+            mois couvre toute l'année pour garder une taille cohérente au fil des ajouts
+            de fichiers."""
+            rows, nb_leads_rows = [], []
             for s in snapshots:
                 lbl = month_label(s["ts"])
                 if lbl is None:
@@ -489,14 +491,13 @@ with tab1:
                     if val == 0:
                         continue
                     rows.append({"Période": lbl, group_col: cat, "Valeur": val})
-                totals.append({"Période": lbl, "Total": grp.sum()})
+                nb_leads_rows.append({"Période": lbl, "Nb Leads": len(d)})
 
             df_long = pd.DataFrame(rows)
-            df_tot  = pd.DataFrame(totals)
+            df_nb   = pd.DataFrame(nb_leads_rows)
 
             # Limiter aux N catégories les plus importantes (en nombre cumulé) ; le
-            # reste est regroupé dans "Autre" pour que le total des barres corresponde
-            # bien à la courbe (sinon la courbe dépasse visuellement les barres).
+            # reste est regroupé dans "Autre" pour que le total des barres reste cohérent.
             if top_n and len(df_long):
                 top_cats = df_long.groupby(group_col)["Valeur"].sum().nlargest(top_n).index
                 df_long[group_col] = df_long[group_col].where(df_long[group_col].isin(top_cats), "Autre")
@@ -532,41 +533,54 @@ with tab1:
                          labels={"Valeur": y_label, "Période": ""})
             fig.update_traces(marker_line_width=0, textposition="inside",
                               insidetextanchor="middle", textfont_size=9, textfont_color="white")
-            fig.add_trace(go.Scatter(
-                x=df_tot["Période"], y=df_tot["Total"],
-                mode="lines+markers", name="Total",
-                line=dict(color=LINE_COLOR, width=1.6),
-                marker=dict(size=6, color=LINE_COLOR),
-                showlegend=False
-            ))
-            fig.update_layout(plot_bgcolor="#f4f9f4", paper_bgcolor="#ffffff",
-                              font_family="Space Grotesk", font_color="#1a2e1a",
-                              margin=dict(l=10,r=10,t=50,b=60),
-                              legend=dict(orientation="h", y=-0.25, font_size=10),
-                              xaxis=dict(categoryorder="array", categoryarray=MONTHS_FR,
-                                         range=[-0.5, 11.5]))
+
+            layout_kwargs = dict(
+                plot_bgcolor="#f4f9f4", paper_bgcolor="#ffffff",
+                font_family="Space Grotesk", font_color="#1a2e1a",
+                margin=dict(l=10,r=10,t=50,b=60),
+                legend=dict(orientation="h", y=-0.25, font_size=10),
+                xaxis=dict(categoryorder="array", categoryarray=MONTHS_FR, range=[-0.5, 11.5]),
+                yaxis=dict(title=y_label, title_font_color="#000000",
+                           title_standoff=4, tickfont_color="#000000"),
+            )
+
+            if show_line:
+                fig.add_trace(go.Scatter(
+                    x=df_nb["Période"], y=df_nb["Nb Leads"],
+                    mode="lines+markers", name="Nb Leads",
+                    line=dict(color=LINE_COLOR, width=1.6),
+                    marker=dict(size=6, color=LINE_COLOR),
+                    yaxis="y2", showlegend=False
+                ))
+                layout_kwargs["yaxis2"] = dict(
+                    title="Nb Leads", overlaying="y", side="right",
+                    title_font_color="#000000", title_standoff=4,
+                    tickfont_color="#000000", showgrid=False,
+                )
+
+            fig.update_layout(**layout_kwargs)
             return fig
 
         ev1, ev2 = st.columns(2)
         with ev1:
             fig = evolution_stacked_chart("Étape", "La Dynamique — Nombre de Leads par Étape",
-                                          color_map=ETAPE_COLOR_MAP)
+                                          color_map=ETAPE_COLOR_MAP, show_line=False)
             st.plotly_chart(fig, use_container_width=True)
         with ev2:
             fig = evolution_stacked_chart("Étape", "Le Résultat — Valeur par Étape (Matu. 30–80%)",
                                           value_col="Revenu_M", matu_range=(30,80), y_label="M€",
-                                          color_map=ETAPE_COLOR_MAP)
+                                          color_map=ETAPE_COLOR_MAP, show_line=True)
             st.plotly_chart(fig, use_container_width=True)
 
         ev3, ev4 = st.columns(2)
         with ev3:
-            fig = evolution_stacked_chart("Typologie", "Top 5 Typologies — Nombre de Leads OK", ok_only=True,
-                                          dynamic_palette=blue_palette, top_n=5)
+            fig = evolution_stacked_chart("Typologie", "TOP 5 Typologies OK", ok_only=True,
+                                          dynamic_palette=blue_palette, top_n=5, show_line=False)
             st.plotly_chart(fig, use_container_width=True)
         with ev4:
             fig = evolution_stacked_chart("Typologie", "Valeur par Typologie (Matu. 30–80%)",
                                           value_col="Revenu_M", matu_range=(30,80), y_label="M€",
-                                          dynamic_palette=blue_palette)
+                                          dynamic_palette=blue_palette, show_line=True)
             st.plotly_chart(fig, use_container_width=True)
 
         # ── Tableau comparatif des activités
