@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import io, os, re
+import requests
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -14,6 +15,32 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ─── PROTECTION PAR MOT DE PASSE ────────────────────────────────────────────────
+# Ne s'active que si un mot de passe a été configuré dans Streamlit Cloud
+# (Gérer l'application → Settings → Secrets → app_password = "...").
+# Si aucun mot de passe n'est configuré, l'app fonctionne normalement sans
+# protection (comportement actuel inchangé tant que rien n'est ajouté).
+if "app_password" in st.secrets:
+    def check_password():
+        def password_entered():
+            if st.session_state["password"] == st.secrets["app_password"]:
+                st.session_state["password_correct"] = True
+                del st.session_state["password"]
+            else:
+                st.session_state["password_correct"] = False
+
+        if st.session_state.get("password_correct", False):
+            return True
+
+        st.text_input("Mot de passe", type="password",
+                       on_change=password_entered, key="password")
+        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+            st.error("Mot de passe incorrect")
+        return False
+
+    if not check_password():
+        st.stop()
 
 # ─── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -269,8 +296,15 @@ with st.sidebar:
     st.markdown("**Filtres**")
 
 # ─── CHARGEMENT DEPUIS DOSSIER HISTORIQUE ──────────────────────────────────────
-def get_historique_files():
-    """Lit tous les xlsx du dossier historique/, triés par date extraite du nom."""
+def _parse_date_from_filename(name):
+    m = re.search(r"(\d{4})[-_](\d{2})[-_](\d{2})", name)
+    if m:
+        return pd.Timestamp(f"{m.group(1)}-{m.group(2)}-{m.group(3)}")
+    return None
+
+def _get_historique_files_local():
+    """Ancien comportement : lit le dossier historique/ présent dans le dépôt
+    lui-même (utilisé si aucun dépôt de données privé n'est configuré)."""
     hist_dir = "historique"
     if not os.path.exists(hist_dir):
         return []
@@ -278,18 +312,63 @@ def get_historique_files():
     for f in os.listdir(hist_dir):
         if f.endswith(".xlsx") and not f.startswith("~"):
             path = os.path.join(hist_dir, f)
-            # Extraire date du nom (format YYYY-MM-DD)
-            import re as re2
-            m = re2.search(r"(\d{4})[-_](\d{2})[-_](\d{2})", f)
-            if m:
-                date_str = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-                date_ts  = pd.Timestamp(date_str)
-            else:
-                date_ts = pd.Timestamp(os.path.getmtime(path), unit="s")
+            date_ts = _parse_date_from_filename(f) or pd.Timestamp(os.path.getmtime(path), unit="s")
             files.append({"path": path, "name": f, "date": date_ts,
                           "label": date_ts.strftime("%d/%m/%Y")})
     files.sort(key=lambda x: x["date"])
     return files
+
+@st.cache_data(ttl=300, show_spinner="Chargement des fichiers historiques…")
+def _get_historique_files_from_private_repo(data_repo, data_path, _token):
+    """Récupère les fichiers xlsx depuis un dépôt GitHub PRIVÉ (data_repo =
+    'Organisation/nom-du-depot'), dans le sous-dossier data_path (utile pour un
+    dépôt centralisé avec un dossier par fonds, ex. 'calderion/historique').
+    Nécessite les secrets Streamlit `github_token`, `data_repo` et `data_path`."""
+    headers = {"Authorization": f"token {_token}", "Accept": "application/vnd.github+json"}
+    api_url = f"https://api.github.com/repos/{data_repo}/contents/{data_path}"
+    resp = requests.get(api_url, headers=headers, timeout=15)
+    if resp.status_code != 200:
+        st.error(
+            f"Impossible de lire '{data_path}' dans le dépôt privé '{data_repo}' "
+            f"(code {resp.status_code}). Vérifie les secrets 'github_token', "
+            f"'data_repo' et 'data_path' dans Streamlit Cloud."
+        )
+        return []
+
+    os.makedirs("/tmp/historique_cache", exist_ok=True)
+    files = []
+    for item in resp.json():
+        name = item.get("name", "")
+        if not name.endswith(".xlsx") or name.startswith("~"):
+            continue
+        raw_resp = requests.get(
+            item["url"],
+            headers={**headers, "Accept": "application/vnd.github.raw"},
+            timeout=15,
+        )
+        if raw_resp.status_code != 200:
+            continue
+        local_path = f"/tmp/historique_cache/{name}"
+        with open(local_path, "wb") as f:
+            f.write(raw_resp.content)
+        date_ts = _parse_date_from_filename(name) or pd.Timestamp.now()
+        files.append({"path": local_path, "name": name, "date": date_ts,
+                      "label": date_ts.strftime("%d/%m/%Y")})
+    files.sort(key=lambda x: x["date"])
+    return files
+
+def get_historique_files():
+    """Bascule automatiquement : si les secrets 'github_token' et 'data_repo'
+    sont configurés, va chercher les fichiers dans le dépôt privé (dans le
+    sous-dossier 'data_path', défaut 'historique' — pratique pour un dépôt
+    centralisé avec un dossier par fonds) ; sinon, comportement historique
+    (dossier historique/ local au dépôt public)."""
+    data_repo = st.secrets.get("data_repo")
+    token = st.secrets.get("github_token")
+    data_path = st.secrets.get("data_path", "historique")
+    if data_repo and token:
+        return _get_historique_files_from_private_repo(data_repo, data_path, token)
+    return _get_historique_files_local()
 
 hist_files = get_historique_files()
 
@@ -303,8 +382,9 @@ _all_files = _os.listdir(".")
 with st.sidebar:
     with st.expander("🔍 Debug (temporaire)"):
         st.write(f"CWD: {_cwd}")
-        st.write(f"Dossier historique existe: {_exists}")
-        st.write(f"Fichiers dans historique/: {_files_in_hist}")
+        st.write(f"Source historique: {'dépôt privé (' + st.secrets.get('data_repo','') + ')' if st.secrets.get('data_repo') else 'dossier local'}")
+        st.write(f"Dossier historique local existe: {_exists}")
+        st.write(f"Fichiers dans historique/ local: {_files_in_hist}")
         st.write(f"Fichiers racine: {_all_files}")
         st.write(f"hist_files trouvés: {[h['name'] for h in hist_files]}")
 
@@ -362,108 +442,49 @@ tab1, tab2 = st.tabs(["📈  KPIs & Analyse", "📋  Pipeline Détaillé"])
 # TAB 1 — KPIs
 # ════════════════════════════════════════════════════════════════════════════════
 with tab1:
-    total_rev   = df["Revenu_M"].sum()
     total_leads = len(df)
-    avg_ticket  = df[df["Revenu_M"]>0]["Revenu_M"].mean() if (df["Revenu_M"]>0).any() else 0
-    pondere     = df["Pipeline_pondere"].sum()
-    matu_moy    = df["Matu_num"].mean()
-    ko_count    = (df["Intérêt"]=="KO").sum()
     ok_count    = (df["Intérêt"]=="OK").sum()
+    ko_count    = (df["Intérêt"]=="KO").sum()
     conv_rate   = ok_count/total_leads*100 if total_leads else 0
-    mort_count  = df["Étape"].isin(["Mort / Plus rien à faire","Probablement mort"]).sum()
-    actif_count = total_leads - mort_count
     en_retard   = df[df["_date_prochaine"].notna() & (df["_date_prochaine"]<pd.Timestamp.now())].shape[0]
-    semaine     = df["Tri"].isin(["Semaine passée","Semaine passée & à venir"]).sum()
+    semaine_passee = df["Tri"].isin(["Semaine passée","Semaine passée & à venir"]).sum()
+    semaine_venir  = df["Tri"].isin(["À venir","Semaine passée & à venir"]).sum()
+    df_ok_typo = df[df["Intérêt"] == "OK"]
+    top_typo = df_ok_typo.groupby("Typologie")["Revenu_M"].sum().idxmax() if len(df_ok_typo) else "—"
+    top_val  = df_ok_typo.groupby("Typologie")["Revenu_M"].sum().max()    if len(df_ok_typo) else 0
 
     st.markdown('<div class="section-title">Vue d\'ensemble</div>', unsafe_allow_html=True)
-    c1,c2,c3,c4 = st.columns(4)
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
     with c1:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">💰 Pipeline Brut</div>
-            <div class="kpi-value">{total_rev:.1f} M€</div>
-            <div class="kpi-sub">{total_leads} leads au total</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">👥 Nombre de Leads</div>
+            <div class="kpi-value">{total_leads}</div>
+            <div class="kpi-sub">au {current_label}</div></div>""", unsafe_allow_html=True)
     with c2:
-        b="badge-green" if pondere>=5 else "badge-orange" if pondere>=1 else "badge-red"
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🎯 Pipeline Pondéré</div>
-            <div class="kpi-value">{pondere:.2f} M€</div>
-            <span class="kpi-badge {b}">Matu. moy. {matu_moy:.0f}%</span></div>""", unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🎟️ Ticket Moyen</div>
-            <div class="kpi-value">{avg_ticket:.2f} M€</div>
-            <div class="kpi-sub">leads avec revenu &gt; 0</div></div>""", unsafe_allow_html=True)
-    with c4:
-        bc="badge-green" if conv_rate>=30 else "badge-orange" if conv_rate>=10 else "badge-red"
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">✅ Taux de Conversion</div>
-            <div class="kpi-value">{conv_rate:.1f}%</div>
-            <span class="kpi-badge {bc}">{ok_count} OK · {ko_count} KO</span></div>""", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    c5,c6,c7,c8 = st.columns(4)
-    with c5:
-        ba="badge-green" if (actif_count/total_leads>0.7 if total_leads else False) else "badge-orange"
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🟢 Leads Actifs</div>
-            <div class="kpi-value">{actif_count}</div>
-            <span class="kpi-badge {ba}">{mort_count} morts/perdus</span></div>""", unsafe_allow_html=True)
-    with c6:
         br="badge-red" if en_retard>10 else "badge-orange" if en_retard>5 else "badge-green"
         st.markdown(f"""<div class="kpi-card"><div class="kpi-label">⏰ Activités en Retard</div>
             <div class="kpi-value">{en_retard}</div>
             <span class="kpi-badge {br}">relances à planifier</span></div>""", unsafe_allow_html=True)
-    with c7:
-        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">📅 Actifs cette Semaine</div>
-            <div class="kpi-value">{semaine}</div>
-            <div class="kpi-sub">activité semaine passée</div></div>""", unsafe_allow_html=True)
-    with c8:
-        top_typo = df.groupby("Typologie")["Revenu_M"].sum().idxmax() if total_leads else "—"
-        top_val  = df.groupby("Typologie")["Revenu_M"].sum().max()    if total_leads else 0
+    with c3:
+        bc="badge-green" if conv_rate>=30 else "badge-orange" if conv_rate>=10 else "badge-red"
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">✅ Taux de Conversion</div>
+            <div class="kpi-value">{conv_rate:.1f}%</div>
+            <span class="kpi-badge {bc}">{ok_count} OK · {ko_count} KO</span></div>""", unsafe_allow_html=True)
+    with c4:
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">📅 Activités Semaine Passée</div>
+            <div class="kpi-value">{semaine_passee}</div>
+            <div class="kpi-sub">activités réalisées</div></div>""", unsafe_allow_html=True)
+    with c5:
+        st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🔜 Activités à Venir</div>
+            <div class="kpi-value">{semaine_venir}</div>
+            <div class="kpi-sub">dans les 2 prochaines semaines</div></div>""", unsafe_allow_html=True)
+    with c6:
         st.markdown(f"""<div class="kpi-card"><div class="kpi-label">🏆 Top Typologie</div>
             <div class="kpi-value" style="font-size:1.1rem;padding-top:.3rem">{top_typo}</div>
             <span class="kpi-badge badge-blue">{top_val:.1f} M€</span></div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Graphiques statiques ────────────────────────────────────────────────────
-    st.markdown('<div class="section-title">Analyse Graphique</div>', unsafe_allow_html=True)
-    cl, cr = st.columns(2)
-    with cl:
-        ed = df.groupby("Étape")["Revenu_M"].sum().reset_index().sort_values("Revenu_M")
-        fig = px.bar(ed, x="Revenu_M", y="Étape", orientation="h",
-                     title="Pipeline par Étape (M€)", color="Revenu_M",
-                     color_continuous_scale=["#d1fae5","#2d8a2d","#0a3d0a"],
-                     labels={"Revenu_M":"M€","Étape":""})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          coloraxis_showscale=False,margin=dict(l=10,r=10,t=40,b=10),font_family="Space Grotesk",font_color="#1a2e1a")
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
-    with cr:
-        td = df.groupby("Intérêt").size().reset_index(name="Nb")
-        fig = px.pie(td, names="Intérêt", values="Nb", title="Répartition par Intérêt", hole=0.5,
-                     color_discrete_map={"OK":"#059669","KO":"#dc2626","nan":"#8b93a7"})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          margin=dict(l=10,r=10,t=40,b=10),font_family="Space Grotesk",font_color="#1a2e1a")
-        st.plotly_chart(fig, use_container_width=True)
-
-    cl2, cr2 = st.columns(2)
-    with cl2:
-        fig = px.histogram(df[df["Matu_num"]>0], x="Matu_num", nbins=10,
-                           title="Distribution Taux de Maturation (%)",
-                           color_discrete_sequence=["#2d8a2d"],
-                           labels={"Matu_num":"Maturation (%)","count":"Nb leads"})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          margin=dict(l=10,r=10,t=40,b=10),font_family="Space Grotesk",font_color="#1a2e1a",bargap=0.1)
-        st.plotly_chart(fig, use_container_width=True)
-    with cr2:
-        pt = df.groupby("Typologie")["Pipeline_pondere"].sum().reset_index().sort_values("Pipeline_pondere",ascending=False).head(8)
-        fig = px.bar(pt, x="Typologie", y="Pipeline_pondere",
-                     title="Pipeline Pondéré par Typologie (M€)", color="Pipeline_pondere",
-                     color_continuous_scale=["#d1fae5","#2d8a2d","#0a3d0a"],
-                     labels={"Pipeline_pondere":"M€","Typologie":""})
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          coloraxis_showscale=False,margin=dict(l=10,r=10,t=40,b=10),
-                          font_family="Space Grotesk",font_color="#1a2e1a",xaxis_tickangle=-30)
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── Évolution historique ────────────────────────────────────────────────────
+    # ── Graphiques évolutifs (empilés par période + courbe de total) ────────────
     all_snapshots_available = hist_files_display or uploaded_history
     if all_snapshots_available:
         st.markdown('<div class="section-title">📅 Évolution dans le Temps</div>', unsafe_allow_html=True)
@@ -489,73 +510,158 @@ with tab1:
         snapshots.append({"df": df_raw, "label": current_label, "ts": current_date})
         snapshots.sort(key=lambda x: x["ts"] if pd.notna(x["ts"]) else pd.Timestamp.min)
 
-        # ── KPIs évolution (pipeline & leads)
-        evo_rows = []
-        for s in snapshots:
-            d = s["df"]
-            evo_rows.append({
-                "Période": s["label"],
-                "Pipeline Brut (M€)": d["Revenu_M"].sum(),
-                "Pipeline Pondéré (M€)": d["Pipeline_pondere"].sum(),
-                "Nb Leads": len(d),
-                "Nb Activités": d["_date_derniere"].notna().sum(),
-            })
-        df_evo = pd.DataFrame(evo_rows)
+        # ── Palettes de couleurs ──────────────────────────────────────────────
+        # Étape : ordre métier fixe, du vert foncé (Mort) au vert clair (Souscription)
+        ETAPE_ORDER = [
+            "Mort / Plus rien à faire",
+            "Probablement mort",
+            "Pas encore prêt - A alimenter",
+            "Intérêt à qualifier",
+            "Interêt indicatif - A creuser",
+            "Due diligence",
+            "Souscription réalisée",
+        ]
+        ETAPE_GREENS = ["#1B4332","#2D6A4F","#40916C","#52B788","#74C69D","#95D5B2","#D8F3DC"]
+        ETAPE_COLOR_MAP = dict(zip(ETAPE_ORDER, ETAPE_GREENS))
+        GREY_FALLBACK = "#C9C9C9"  # pour "Non renseigné" ou toute étape imprévue
 
-        e1, e2 = st.columns(2)
-        with e1:
-            fig = px.line(df_evo, x="Période", y="Pipeline Brut (M€)", markers=True,
-                          title="Évolution Pipeline Brut (M€)",
-                          color_discrete_sequence=["#2d8a2d"])
-            fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                              font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=40,b=10))
+        def blue_palette(n):
+            return px.colors.sample_colorscale(
+                [[0.0,"#03045E"],[0.3,"#0077B6"],[0.6,"#00B4D8"],[1.0,"#CAF0F8"]],
+                [i/max(n-1,1) for i in range(n)]
+            )
+
+        LINE_COLOR = "#D6672B"  # accent chaud, contrastant avec le vert et le bleu
+
+        # ── Axe des mois : on réserve la place pour les 12 mois de l'année ─────
+        MONTHS_FR = ["Jan","Fév","Mars","Avr","Mai","Juin","Juil","Août","Sept","Oct","Nov","Déc"]
+
+        def month_label(ts):
+            if pd.isna(ts):
+                return None
+            return MONTHS_FR[ts.month - 1]
+
+        def evolution_stacked_chart(group_col, title, value_col=None, matu_range=None,
+                                     y_label="Nb Leads", ok_only=False,
+                                     color_map=None, dynamic_palette=None,
+                                     top_n=None, show_line=False):
+            """Construit un graphique en barres empilées par mois (un fichier historique =
+            un mois), regroupées par group_col (Étape ou Typologie). Si show_line=True,
+            une courbe fine est ajoutée sur un axe secondaire à droite, indiquant le
+            nombre de leads (indépendant de l'axe principal en valeur/M€). L'axe des
+            mois couvre toute l'année pour garder une taille cohérente au fil des ajouts
+            de fichiers."""
+            rows, nb_leads_rows = [], []
+            for s in snapshots:
+                lbl = month_label(s["ts"])
+                if lbl is None:
+                    continue
+                d = s["df"].copy()
+                if matu_range:
+                    d = d[d["Matu_num"].between(matu_range[0], matu_range[1])]
+                if ok_only:
+                    d = d[d["Intérêt"] == "OK"]
+                d[group_col] = d[group_col].fillna("Non renseigné")
+                d.loc[d[group_col].astype(str).str.strip()=="", group_col] = "Non renseigné"
+                if value_col:
+                    grp = d.groupby(group_col)[value_col].sum()
+                else:
+                    grp = d.groupby(group_col).size()
+                for cat, val in grp.items():
+                    if val == 0:
+                        continue
+                    rows.append({"Période": lbl, group_col: cat, "Valeur": val})
+                nb_leads_rows.append({"Période": lbl, "Nb Leads": len(d)})
+
+            df_long = pd.DataFrame(rows, columns=["Période", group_col, "Valeur"])
+            df_nb   = pd.DataFrame(nb_leads_rows, columns=["Période", "Nb Leads"])
+
+            # Limiter aux N catégories les plus importantes (en nombre cumulé) ; le
+            # reste est regroupé dans "Autre" pour que le total des barres reste cohérent.
+            if top_n and len(df_long):
+                top_cats = df_long.groupby(group_col)["Valeur"].sum().nlargest(top_n).index
+                df_long[group_col] = df_long[group_col].where(df_long[group_col].isin(top_cats), "Autre")
+                df_long = df_long.groupby(["Période", group_col], as_index=False)["Valeur"].sum()
+
+            # Couleurs : soit une correspondance fixe (Étape), soit un dégradé dynamique
+            # du plus foncé (catégorie la plus importante) au plus clair (Typologie)
+            if color_map is not None:
+                cats_present = df_long[group_col].unique().tolist() if len(df_long) else []
+                cmap = {c: color_map.get(c, GREY_FALLBACK) for c in cats_present}
+                order = [c for c in color_map.keys() if c in cats_present] + \
+                        [c for c in cats_present if c not in color_map]
+            elif dynamic_palette is not None and len(df_long):
+                order = [c for c in df_long.groupby(group_col)["Valeur"].sum()
+                         .sort_values(ascending=False).index.tolist() if c != "Autre"]
+                colors = dynamic_palette(len(order))
+                cmap = dict(zip(order, colors))
+                if "Autre" in df_long[group_col].values:
+                    cmap["Autre"] = "#B0B0B0"
+                    order = order + ["Autre"]
+            else:
+                cmap = None
+                order = None
+
+            df_long["Texte"] = df_long["Valeur"].apply(
+                lambda v: f"{v:.1f}" if value_col else f"{int(v)}"
+            )
+
+            fig = px.bar(df_long, x="Période", y="Valeur", color=group_col, barmode="stack",
+                         title=title, color_discrete_map=cmap,
+                         category_orders={"Période": MONTHS_FR, **({group_col: order} if order else {})},
+                         text="Texte",
+                         labels={"Valeur": y_label, "Période": ""})
+            fig.update_traces(marker_line_width=0, textposition="inside",
+                              insidetextanchor="middle", textfont_size=9, textfont_color="white")
+
+            layout_kwargs = dict(
+                plot_bgcolor="#f4f9f4", paper_bgcolor="#ffffff",
+                font_family="Space Grotesk", font_color="#1a2e1a",
+                margin=dict(l=10,r=10,t=50,b=60),
+                legend=dict(orientation="h", y=-0.25, font_size=10),
+                xaxis=dict(categoryorder="array", categoryarray=MONTHS_FR, range=[-0.5, 11.5]),
+                yaxis=dict(title=y_label, title_font_color="#000000",
+                           title_standoff=4, tickfont_color="#000000"),
+            )
+
+            if show_line:
+                fig.add_trace(go.Scatter(
+                    x=df_nb["Période"], y=df_nb["Nb Leads"],
+                    mode="lines+markers", name="Nb Leads",
+                    line=dict(color=LINE_COLOR, width=1.6),
+                    marker=dict(size=6, color=LINE_COLOR),
+                    yaxis="y2", showlegend=False
+                ))
+                layout_kwargs["yaxis2"] = dict(
+                    title="Nb Leads", overlaying="y", side="right",
+                    title_font_color="#000000", title_standoff=4,
+                    tickfont_color="#000000", showgrid=False,
+                )
+
+            fig.update_layout(**layout_kwargs)
+            return fig
+
+        ev1, ev2 = st.columns(2)
+        with ev1:
+            fig = evolution_stacked_chart("Étape", "La Dynamique — Nombre de Leads par Étape",
+                                          color_map=ETAPE_COLOR_MAP, show_line=False)
             st.plotly_chart(fig, use_container_width=True)
-        with e2:
-            fig = px.line(df_evo, x="Période", y="Nb Leads", markers=True,
-                          title="Évolution Nombre de Leads",
-                          color_discrete_sequence=["#1a6e3c"])
-            fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                              font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=40,b=10))
+        with ev2:
+            fig = evolution_stacked_chart("Étape", "Le Résultat — Valeur par Étape (Matu. 30–80%)",
+                                          value_col="Revenu_M", matu_range=(30,80), y_label="M€",
+                                          color_map=ETAPE_COLOR_MAP, show_line=True)
             st.plotly_chart(fig, use_container_width=True)
 
-        # ── Évolution des intérêts (OK/KO/vide) par période — STACKED BAR
-        interet_rows = []
-        for s in snapshots:
-            d = s["df"]
-            counts = d["Intérêt"].fillna("Non renseigné").value_counts()
-            for interet, cnt in counts.items():
-                interet_rows.append({"Période": s["label"], "Intérêt": interet, "Nb": cnt})
-        df_int = pd.DataFrame(interet_rows)
-
-        fig = px.bar(df_int, x="Période", y="Nb", color="Intérêt", barmode="stack",
-                     title="Évolution des Leads par Intérêt (OK / KO / Non renseigné)",
-                     color_discrete_map={"OK":"#059669","KO":"#dc2626","Non renseigné":"#94a3b8"},
-                     labels={"Nb":"Nb Leads","Période":""},
-                     text_auto=True)
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=50,b=10),
-                          legend=dict(orientation="h",y=1.12))
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
-
-        # ── Évolution des étapes par période
-        etape_rows = []
-        for s in snapshots:
-            d = s["df"]
-            counts = d["Étape"].fillna("Non renseigné").value_counts()
-            for etape, cnt in counts.items():
-                etape_rows.append({"Période": s["label"], "Étape": etape, "Nb": cnt})
-        df_et = pd.DataFrame(etape_rows)
-
-        fig = px.bar(df_et, x="Période", y="Nb", color="Étape", barmode="stack",
-                     title="Évolution des Leads par Étape",
-                     labels={"Nb":"Nb Leads","Période":""},
-                     text_auto=True)
-        fig.update_layout(plot_bgcolor="#f4f9f4",paper_bgcolor="#ffffff",
-                          font_family="Space Grotesk",font_color="#1a2e1a",margin=dict(l=10,r=10,t=50,b=60),
-                          legend=dict(orientation="h",y=-0.25,font_size=10))
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
+        ev3, ev4 = st.columns(2)
+        with ev3:
+            fig = evolution_stacked_chart("Typologie", "TOP 5 Typologies OK", ok_only=True,
+                                          dynamic_palette=blue_palette, top_n=5, show_line=False)
+            st.plotly_chart(fig, use_container_width=True)
+        with ev4:
+            fig = evolution_stacked_chart("Typologie", "Valeur par Typologie (Matu. 30–80%)",
+                                          value_col="Revenu_M", matu_range=(30,80), y_label="M€",
+                                          dynamic_palette=blue_palette, show_line=True)
+            st.plotly_chart(fig, use_container_width=True)
 
         # ── Tableau comparatif des activités
         st.markdown('<div class="section-title">📊 Comparatif Activités d\'une Période à l\'Autre</div>', unsafe_allow_html=True)
@@ -596,7 +702,7 @@ with tab2:
 
     fc1, fc2, fc3 = st.columns([2,2,3])
     with fc1: search   = st.text_input("🔍 Rechercher", "")
-    with fc2: sort_col = st.selectbox("Trier par", ["Entité","Revenu_M","Matu_num","Étape","Typologie"])
+    with fc2: sort_col = st.selectbox("Trier par", ["Entité","Revenu_M","Matu_num","Étape","Typologie"], index=2)
     with fc3: sort_dir = st.radio("Ordre", ["Décroissant","Croissant"], horizontal=True)
 
     df_disp = df.copy()
@@ -675,6 +781,12 @@ with tab2:
     rows_html = "\n".join(rows_parts)
 
     table = (
+        '<div style="display:flex;justify-content:flex-end;margin-bottom:6px;">'
+        '<button onclick="document.getElementById(\'twrap\').requestFullscreen()" '
+        'style="background:#0a3d0a;color:#fff;border:none;border-radius:8px;'
+        'padding:6px 14px;font-family:Space Grotesk,sans-serif;font-size:0.75rem;'
+        'cursor:pointer;display:flex;align-items:center;gap:6px;">'
+        '⛶ Plein écran</button></div>'
         '<div id="twrap" style="overflow:auto;max-height:650px;border-radius:12px;'
         'border:1px solid #c8e6c8;font-family:Space Grotesk,sans-serif;">'
         '<table id="pt" style="border-collapse:collapse;width:100%;min-width:1400px;">'
@@ -684,7 +796,11 @@ with tab2:
         '</tr></thead>'
         '<tbody id="ptb">' + rows_html + '</tbody>'
         '</table></div>'
-        '<style>#pt tr:hover td{filter:brightness(.94);}</style>'
+        '<style>'
+        '#pt tr:hover td{filter:brightness(.94);}'
+        '#twrap:fullscreen{max-height:100vh;background:#fff;padding:14px;}'
+        '#twrap:-webkit-full-screen{max-height:100vh;background:#fff;padding:14px;}'
+        '</style>'
         '<script>'
         'var _sd={};'
         'function srt(c){'
@@ -724,7 +840,7 @@ with tab2:
 body { font-family: 'Space Grotesk', sans-serif; font-size: 0.79rem; background: white; }
 </style>
 </head><body>""" + table + "</body></html>"
-    components.html(full_html, height=700, scrolling=True)
+    components.html(full_html, height=734, scrolling=True)
     # ── Export XLSX propre
     output = io.BytesIO()
     try:
